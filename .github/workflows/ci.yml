@@ -5,6 +5,6 @@ on:
 jobs:
   ci:
     secrets: inherit
-    uses: sisal-testorg/shared-workflows/.github/workflows/betting-workflow.yaml@feature/STSK0160139
+    uses: sisal-testorg/shared-workflows/.github/workflows/betnodeting-workflow.yaml@main
     with:
       project-type: "nodejs"
