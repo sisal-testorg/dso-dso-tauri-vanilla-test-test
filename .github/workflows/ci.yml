@@ -1,0 +1,10 @@
+name: CI
+# Triggers
+on:
+  workflow_dispatch: # Manual trigger from the Actions tab
+jobs:
+  ci:
+    secrets: inherit
+    uses: sisal-testorg/shared-workflows/.github/workflows/betting-workflow.yaml@1.5.1
+    with:
+      project-type: ""
