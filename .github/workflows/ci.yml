@@ -88,28 +88,28 @@ jobs:
     
     - name: Workflow version
       id: workflow-version
-      uses: Sisal-Org/internal-actions/workflow-version@main
+      uses: sisal-testorg/internal-actions/workflow-version@main
       with: 
         GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
     
     - name: Is release
       id: isRelease
       if: ${{ inputs.prepare-release }} 
-      uses: Sisal-Org/internal-actions/isrelease@main
+      uses: sisal-testorg/internal-actions/isrelease@main
 
     - name: Check for reintegration
-      uses: Sisal-Org/internal-actions/check-reintegration@main
+      uses: sisal-testorg/internal-actions/check-reintegration@main
       id: check-reintegration
       if: inputs.prepare-release == true
       
     - name: Create RC
       id: createRC
       if:  steps.isRelease.outputs.isRelease == 'true'
-      uses: Sisal-Org/internal-actions/create-rc@main
+      uses: sisal-testorg/internal-actions/create-rc@main
 
     - id: project-name
       name: Project name
-      uses: Sisal-Org/internal-actions/project-name@main
+      uses: sisal-testorg/internal-actions/project-name@main
 
     - name: check dso test
       id: check-dso-test
@@ -130,7 +130,7 @@ jobs:
   
     - name: Set .npmrc
       id: node-npmrc
-      uses: Sisal-Org/internal-actions/node-npmrc@main
+      uses: sisal-testorg/internal-actions/node-npmrc@main
       with:
         content: ${{ secrets[format('NPMRC_IDP_{0}', env.WORKING_ENV)] }}
         reponame: ${{ inputs.nexus-npm-repo }}
@@ -139,13 +139,13 @@ jobs:
   
     - name: Parse package version      
       id: parse-package-version
-      uses: Sisal-Org/internal-actions/parse-package-version@main
+      uses: sisal-testorg/internal-actions/parse-package-version@main
       with:
         context_dir: ${{ inputs.project_dir}}
     
     - name: Artifact-version to env
       if: github.ref_type == 'tag' || startsWith(github.ref_name, 'develop') || startsWith(github.ref_name, 'feature/') || startsWith(github.ref, 'refs/pull/') || steps.isRelease.outputs.isRelease == 'true'
-      uses: Sisal-Org/internal-actions/artifact-version-to-env@main
+      uses: sisal-testorg/internal-actions/artifact-version-to-env@main
       with:
         artifact-version: ${{ steps.parse-package-version.outputs.artifact-version }}
         ref-type: ${{ github.ref_type }}
@@ -157,7 +157,7 @@ jobs:
     # - name : package release
     #   id: package-release
     #   if: (steps.isRelease.outputs.isRelease == 'true' ) && (inputs.do-release == 'true' )
-    #   uses: Sisal-Org/internal-actions/package-release@main
+    #   uses: sisal-testorg/internal-actions/package-release@main
     #   with:
     #     OCI_REGISTRY: ${{vars.OCI_REGISTRY}}/${{vars.OCI_ACCOUNT}}
     #     OCI_USERNAME: ${{vars.OCI_REGISTRY_USERNAME}}
@@ -192,7 +192,7 @@ jobs:
     - name: Create .npmrc for release
       if: ${{ steps.isRelease.outputs.isRelease  == 'true' }}
       id: release-create-npmrc
-      uses: Sisal-Org/internal-actions/node-npmrc@main
+      uses: sisal-testorg/internal-actions/node-npmrc@main
       with:
         content: ${{ secrets[format('NPMRC_IDP_{0}', env.WORKING_ENV)] }}
         reponame: ${{ inputs.nexus-npm-repo }}
@@ -203,7 +203,7 @@ jobs:
    
     - name: update package.json
       id: update-package-json
-      uses: Sisal-Org/internal-actions/package-json-update@main
+      uses: sisal-testorg/internal-actions/package-json-update@main
       with:
         NEXUS_NPM_REPO: ${{inputs.nexus-npm-repo}}
         project-name: ${{steps.project-name.outputs.project-name}}  
@@ -216,7 +216,7 @@ jobs:
         node-version: '${{inputs.node-version}}'
     
     - name: Build package.json
-      uses: Sisal-Org/internal-actions/build-package-json@main
+      uses: sisal-testorg/internal-actions/build-package-json@main
       with:
         project-name: ${{ steps.project-name.outputs.project-name }}
         project-type: ${{ inputs.project-type }}
@@ -226,7 +226,7 @@ jobs:
     - name: Sonarcloud scanner
       if: ${{ (steps.check-dso-test.outputs.run-sonarcloud-scan-dso-test == 'true') && !startsWith(github.ref_name, 'feature/') }}
       id: sonarcloud-scanner
-      uses: Sisal-Org/internal-actions/sonarcloud-scanner@main
+      uses: sisal-testorg/internal-actions/sonarcloud-scanner@main
       with:
         SONAR_CLOUD_ORGANIZATION: ${{ vars.SONAR_CLOUD_ORGANIZATION}}
         SONAR_TOKEN: ${{ secrets[format('SONAR_CLOUD_IDP_{0}_TOKEN', env.WORKING_ENV)] }} 
@@ -251,7 +251,7 @@ jobs:
     - name: Veracode Prepare binary
       id: prepare-binary
       if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' }}
-      uses: Sisal-Org/internal-actions/veracode-scanner-prepare-binary@main
+      uses: sisal-testorg/internal-actions/veracode-scanner-prepare-binary@main
       with:
         PROJECT_TYPE: 'nodejs'
         project-dir: ${{ inputs.project_dir }}
@@ -261,7 +261,7 @@ jobs:
     - name: veracode sca
       if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' }}
       continue-on-error: true      
-      uses: Sisal-Org/internal-actions/veracode-scanner-sca@main
+      uses: sisal-testorg/internal-actions/veracode-scanner-sca@main
       with:
         PROJECT_TYPE: 'nodejs'
         IDP_SRCCLR_API_TOKEN: >-
@@ -281,7 +281,7 @@ jobs:
 #    - name: veracode sast
 #      if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') }}
 #      continue-on-error: true
-#      uses: Sisal-Org/internal-actions/veracode-scanner-sast@main
+#      uses: sisal-testorg/internal-actions/veracode-scanner-sast@main
 #      with:
 #        PROJECT_NAME: ${{steps.project-name.outputs.project-name}}
 #        PROJECT_KEY: "${{steps.project-name.outputs.project-name}}:${{ env.artifact-name }}"
@@ -292,7 +292,7 @@ jobs:
 
     - name: veracode upload and scan
       if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' && (steps.prepare-binary.outputs.skip-upload == 'false') }}
-      uses: Sisal-Org/internal-actions/veracode-scanner-uploadandscan@main
+      uses: sisal-testorg/internal-actions/veracode-scanner-uploadandscan@main
       with:
         PROJECT_VERSION: ${{ env.artifact-version }}
         PROJECT_KEY: "${{steps.project-name.outputs.project-name}}:${{ env.artifact-name }}"
@@ -311,7 +311,7 @@ jobs:
 #    - name: Scan vulnerability
 #      if: ${{ inputs.trivy-enabled }}
 #      id: scan
-#      uses: Sisal-Org/internal-actions/trivy-library@main
+#      uses: sisal-testorg/internal-actions/trivy-library@main
 #      with:
 #        DEPENDENCY_TRACK_API_KEY: ${{ secrets[format('DEPENDENCY_TRACK_IDP_{0}_API_KEY', env.WORKING_ENV)] }} 
 #        DEPENDENCY_TRACK_URL: ${{ vars[format('DEPENDENCY_TRACK_IDP_{0}_URL', env.WORKING_ENV)] }} 
@@ -324,13 +324,13 @@ jobs:
     
 #    - name: update package.json
 #      id: update-package-json
-#      uses: Sisal-Org/internal-actions/package-json-update@main
+#      uses: sisal-testorg/internal-actions/package-json-update@main
 #      with:
 #        NEXUS_NPM_REPO: ${{inputs.nexus-npm-repo}}
 #        ENVIRONMENT: ${{ inputs.environment }}
     
     - name: npm publish
-      uses: Sisal-Org/internal-actions/npm-publish@main
+      uses: sisal-testorg/internal-actions/npm-publish@main
       with:
         OCI_REGISTRY: ${{vars.OCI_REGISTRY}}/${{vars.OCI_ACCOUNT}}
         OCI_TOKEN: ${{secrets.OCI_AUTH_TOKEN_IDP_PROD}}
@@ -342,7 +342,7 @@ jobs:
         
     - name: Send Slack Notification
       if: always()
-      uses: Sisal-Org/internal-actions/slack-notification@main
+      uses: sisal-testorg/internal-actions/slack-notification@main
       with:
         webhook-url: ${{ inputs.slack-webhook-url }}
         factory-slack-webhook-url: ${{ inputs.factory-slack-webhook-url }}
@@ -357,7 +357,7 @@ jobs:
 
     - name: Upload Summary to Bucket
       if: always()
-      uses: Sisal-Org/internal-actions/upload-summary@main
+      uses: sisal-testorg/internal-actions/upload-summary@main
       with:
         summary-file-path: 'summary_raw_md'
         bucketName: ${{format('idp-{0}', inputs.environment)}}

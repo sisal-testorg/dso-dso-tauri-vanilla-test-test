@@ -62,7 +62,7 @@ on:
         required: false
 jobs:
   call-deployment-workflow:
-    uses: Sisal-Org/shared-workflows/.github/workflows/cd-workflow.yaml@1.4.2
+    uses: sisal-testorg/shared-workflows/.github/workflows/cd-workflow.yaml@1.4.2
     with:
       repoName: <<put name of the repo of manifest here>>
       imageName: ${{ inputs.imageName }}
