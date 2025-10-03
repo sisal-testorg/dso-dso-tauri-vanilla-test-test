@@ -1,10 +1,381 @@
 name: CI
 # Triggers
 on:
-  workflow_dispatch: # Manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:   
+      skip-tests:
+        type: boolean
+        description: Skip tests
+        default: false     
+      prepare-release:
+        type: boolean
+        description: Prepare release candidate
+        default: false 
+      nexus-npm-repo:
+        type: string
+        description: Name to referer repo in npmrc secret in gha
+        default: ''
+      node-version:
+        type: string
+        description: Node version
+        default: '18.x'
+      project_dir:
+        type: string
+        default: .    
+      environment:
+        type: string
+        default: dev
+        description: The environment to work on, used for example with sonar, dtrack host (accepted values are DEV, STAGING, PROD; case-insensitive )
+      slack-webhook-url:
+        type: string
+        description: Slack webhook URL for notifications
+        default: ''
+      factory-slack-webhook-url:
+        type: string
+        description: Slack factory webhook URL for notifications
+        default: ''
+      veracode_workspace:
+        type: string
+        description: The workspace name (e.g., digital, betting)
+        default: ''
+      business_unit_guid:
+        description: Business unit GUID to set in the veracode application
+        required: true
+        type: string
+      extend-gh-teams:
+        description: "extend github team with passed value"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
 jobs:
-  ci:
-    secrets: inherit
-    uses: sisal-testorg/shared-workflows/.github/workflows/betting-workflow.yaml@feature/STSK0160139
-    with:
-      project-type: "nodejs"
+  npm:
+    runs-on: 
+      group: ${{format('idp-{0}-gha-runner-group', inputs.environment)}}
+    env:
+      OCI_CLI_USER: ${{ secrets.OCI_USER_IDP_PROD }}
+      OCI_CLI_TENANCY: ${{ secrets.OCI_SISAL_TENANCY }}
+      OCI_CLI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT_IDP_PROD }}
+      OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_KEY_CONTENT_IDP_PROD }}
+      OCI_CLI_REGION: ${{ secrets.OCI_OCIR_REGION }}
+    steps:
+
+    - name: Generate WF token
+      id: generate_token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ secrets.WORKFLOW_ACTION_APP_ID }}
+        private-key: ${{ secrets.WORKFLOW_ACTION_KEY }}
+        owner: ${{ github.repository_owner }}    
+        
+    - name: Set token to env
+      shell: bash
+      run: | 
+        echo "GITHUB_TOKEN=${{steps.generate_token.outputs.token}}" >> $GITHUB_ENV
+
+    - name: Set token to env
+      shell: bash
+      run: | 
+        echo "GITHUB_TOKEN=${{steps.generate_token.outputs.token}}" >> $GITHUB_ENV
+
+    - name: Setup env variables
+      shell: bash
+      run: |
+        echo "WORKING_ENV=$(echo ${{inputs.environment}} | tr '[:lower:]' '[:upper:]' )" >> $GITHUB_ENV
+
+    - name: Log into OCIR
+      uses: oracle-actions/login-ocir@v1.3.0
+      id: login-ocir
+      with:
+        auth_token: ${{ secrets.OCI_AUTH_TOKEN_IDP_PROD }}
+
+    - name: checkout repository
+      uses: actions/checkout@v4.1.4
+      with:
+        fetch-depth: '0'
+    
+    - name: Workflow version
+      id: workflow-version
+      uses: Sisal-Org/internal-actions/workflow-version@main
+      with: 
+        GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
+    
+    - name: Is release
+      id: isRelease
+      if: ${{ inputs.prepare-release }} 
+      uses: Sisal-Org/internal-actions/isrelease@main
+
+    - name: Check for reintegration
+      uses: Sisal-Org/internal-actions/check-reintegration@main
+      id: check-reintegration
+      if: inputs.prepare-release == true
+      
+    - name: Create RC
+      id: createRC
+      if:  steps.isRelease.outputs.isRelease == 'true'
+      uses: Sisal-Org/internal-actions/create-rc@main
+
+    - id: project-name
+      name: Project name
+      uses: Sisal-Org/internal-actions/project-name@main
+
+    - name: check dso test
+      id: check-dso-test
+      shell: bash
+      run: |
+        REPO_NAME=${{steps.project-name.outputs.project-name}}
+        echo "repo name: $REPO_NAME"
+        if echo "$REPO_NAME" | grep -i -q '^dso-.*-test$'; then
+          echo "this is a dso-test cloned repo"
+          echo "run-veracode-scan-dso-test=${{vars.DSO_TEST_RUN_VERACODE_SCAN}}" >> "$GITHUB_OUTPUT" 
+          echo "run-sonarcloud-scan-dso-test=${{vars.DSO_TEST_RUN_SONARCLOUD_SCAN}}" >> "$GITHUB_OUTPUT" 
+        else
+          echo "run-veracode-scan-dso-test=true" >> "$GITHUB_OUTPUT"
+          echo "run-sonarcloud-scan-dso-test=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    # start not release block
+  
+    - name: Set .npmrc
+      id: node-npmrc
+      uses: Sisal-Org/internal-actions/node-npmrc@main
+      with:
+        content: ${{ secrets[format('NPMRC_IDP_{0}', env.WORKING_ENV)] }}
+        reponame: ${{ inputs.nexus-npm-repo }}
+        context_dir: ${{ inputs.project_dir }}
+        #${{secrets.NEXUS_TOKEN}}
+  
+    - name: Parse package version      
+      id: parse-package-version
+      uses: Sisal-Org/internal-actions/parse-package-version@main
+      with:
+        context_dir: ${{ inputs.project_dir}}
+    
+    - name: Artifact-version to env
+      if: github.ref_type == 'tag' || startsWith(github.ref_name, 'develop') || startsWith(github.ref_name, 'feature/') || startsWith(github.ref, 'refs/pull/') || steps.isRelease.outputs.isRelease == 'true'
+      uses: Sisal-Org/internal-actions/artifact-version-to-env@main
+      with:
+        artifact-version: ${{ steps.parse-package-version.outputs.artifact-version }}
+        ref-type: ${{ github.ref_type }}
+        ref-name: ${{ github.ref_name }}
+        is-release: ${{ steps.isRelease.outputs.isRelease }}
+        rc-tag-name: ${{ steps.createRC.outputs.rc-tag-name }}
+
+
+    # - name : package release
+    #   id: package-release
+    #   if: (steps.isRelease.outputs.isRelease == 'true' ) && (inputs.do-release == 'true' )
+    #   uses: Sisal-Org/internal-actions/package-release@main
+    #   with:
+    #     OCI_REGISTRY: ${{vars.OCI_REGISTRY}}/${{vars.OCI_ACCOUNT}}
+    #     OCI_USERNAME: ${{vars.OCI_REGISTRY_USERNAME}}
+    #     OCI_PASSWORD: ${{secrets.OCI_REGISTRY_PASSWORD}}
+    #     artifact-id: ${{steps.parse-package-version.outputs.artifact-name}}
+    #     artifact-version: ${{env.artifact-version}}
+    # - name: Create GH Release
+    #   shell: bash
+    #   if: ${{ github.ref_name == 'main' }}
+    #   run: |         
+    #     # create release
+    #     gh release create "${{ env.artifact-version }}" --title "${{ env.artifact-version }}" --generate-notes
+    #   env:
+    #     GH_TOKEN: ${{env.GITHUB_TOKEN}}
+
+    # - name: Checkout repository for release
+    #   id: release-checkout-repository
+    #   uses: actions/checkout@v4.1.4
+    #   if: ${{steps.isRelease.outputs.isRelease== 'true' }} 
+    #   with:
+    #     ref: "${{env.artifact-version}}"
+    - name: Checkout TAG
+      id: release-checkout-repository
+      uses: actions/checkout@v4
+      if: ${{steps.isRelease.outputs.isRelease == 'true'}}
+      with:        
+        ref: "${{env.artifact-version}}"
+        fetch-depth: 0
+    
+
+    # recreate .npmrc file if previous checkout 
+    - name: Create .npmrc for release
+      if: ${{ steps.isRelease.outputs.isRelease  == 'true' }}
+      id: release-create-npmrc
+      uses: Sisal-Org/internal-actions/node-npmrc@main
+      with:
+        content: ${{ secrets[format('NPMRC_IDP_{0}', env.WORKING_ENV)] }}
+        reponame: ${{ inputs.nexus-npm-repo }}
+        context_dir: ${{ inputs.project_dir }}
+    #    nexus-token: ${{secrets.NEXUS_TOKEN}}
+
+      # end not release block
+   
+    - name: update package.json
+      id: update-package-json
+      uses: Sisal-Org/internal-actions/package-json-update@main
+      with:
+        NEXUS_NPM_REPO: ${{inputs.nexus-npm-repo}}
+        project-name: ${{steps.project-name.outputs.project-name}}  
+        ENVIRONMENT: ${{ inputs.environment }}
+        context_dir: ${{inputs.project_dir}}
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '${{inputs.node-version}}'
+    
+    - name: Build package.json
+      uses: Sisal-Org/internal-actions/build-package-json@main
+      with:
+        project-name: ${{ steps.project-name.outputs.project-name }}
+        project-type: ${{ inputs.project-type }}
+        project-dir: ${{ inputs.project_dir }}
+        skip-tests: ${{ inputs.skip-tests }}
+
+    - name: Sonarcloud scanner
+      if: ${{ (steps.check-dso-test.outputs.run-sonarcloud-scan-dso-test == 'true') && !startsWith(github.ref_name, 'feature/') }}
+      id: sonarcloud-scanner
+      uses: Sisal-Org/internal-actions/sonarcloud-scanner@main
+      with:
+        SONAR_CLOUD_ORGANIZATION: ${{ vars.SONAR_CLOUD_ORGANIZATION}}
+        SONAR_TOKEN: ${{ secrets[format('SONAR_CLOUD_IDP_{0}_TOKEN', env.WORKING_ENV)] }} 
+        SONAR_PROJECT_KEY: "${{steps.project-name.outputs.project-name}}:${{env.artifact-name}}"
+        PROJECT_VERSION: ${{env.artifact-version}}
+        OCI_TOKEN: ${{secrets.OCI_AUTH_TOKEN_IDP_PROD}}
+        OCI_REGISTRY: ${{vars.OCI_REGISTRY}}/${{vars.OCI_ACCOUNT}}
+        PROJECT_TYPE: 'nodejs' 
+        context_dir: ${{ inputs.project_dir }}
+        sonar-inclusions-prop: ${{ vars.SONAR_INCLUSIONS_PROPERTY }}
+        bucketName: ${{format('idp-{0}', inputs.environment)}}
+        OCI_CLI_USER: ${{ env.OCI_CLI_USER }}
+        OCI_CLI_FINGERPRINT: ${{ env.OCI_CLI_FINGERPRINT }}
+        OCI_CLI_TENANCY: ${{ env.OCI_CLI_TENANCY }}
+        OCI_CLI_REGION: ${{ env.OCI_CLI_REGION }}
+        OCI_CLI_KEY_CONTENT: ${{ env.OCI_CLI_KEY_CONTENT }}
+        GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
+        sonar-exclusions-prop: ${{ vars.SONAR_EXCLUSIONS_PROPERTY }}
+        code-quality-project-name: ${{ steps.project-name.outputs.project-name}}:${{ env.artifact-name }}
+        SONAR_DEBUG_LOG_ENABLED: ${{vars.SONAR_DEBUG_LOG_ENABLED}}
+
+    - name: Veracode Prepare binary
+      id: prepare-binary
+      if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' }}
+      uses: Sisal-Org/internal-actions/veracode-scanner-prepare-binary@main
+      with:
+        PROJECT_TYPE: 'nodejs'
+        project-dir: ${{ inputs.project_dir }}
+        IDP_VERACODE_ID: ${{ secrets[format('IDP_{0}_VERACODE_ID', env.WORKING_ENV)] }}  
+        IDP_VERACODE_SECRET_KEY: ${{ secrets[format('IDP_{0}_VERACODE_SECRET_KEY', env.WORKING_ENV)] }} 
+
+    - name: veracode sca
+      if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' }}
+      continue-on-error: true      
+      uses: Sisal-Org/internal-actions/veracode-scanner-sca@main
+      with:
+        PROJECT_TYPE: 'nodejs'
+        IDP_SRCCLR_API_TOKEN: >-
+          ${{ 
+            startsWith(steps.project-name.outputs.project-name, 'dso-') 
+            && secrets[format('IDP_{0}_SRCCLR_API_TOKEN_DEVSECOPS', env.WORKING_ENV)] 
+            || secrets[format('IDP_{0}_SRCCLR_API_TOKEN_{1}', env.WORKING_ENV, inputs.veracode_workspace) ] 
+          }}
+        GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
+        GITHUB_ISSUE: ${{ vars.VERACODE_ISSUE_TO_GITHUB }}
+        artifact-name: ${{ env.artifact-name}}
+        artifact-version: ${{ env.artifact-version}} 
+        project-name: ${{steps.project-name.outputs.project-name}}
+        project-dir: ${{ inputs.project_dir }}
+        
+
+#    - name: veracode sast
+#      if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') }}
+#      continue-on-error: true
+#      uses: Sisal-Org/internal-actions/veracode-scanner-sast@main
+#      with:
+#        PROJECT_NAME: ${{steps.project-name.outputs.project-name}}
+#        PROJECT_KEY: "${{steps.project-name.outputs.project-name}}:${{ env.artifact-name }}"
+#        IDP_VERACODE_ID: ${{ secrets[format('IDP_{0}_VERACODE_ID', env.WORKING_ENV)] }}  
+#        IDP_VERACODE_SECRET_KEY: ${{ secrets[format('IDP_{0}_VERACODE_SECRET_KEY', env.WORKING_ENV)] }} 
+#        GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
+#        REPORT_TO_ISSUES: ${{ vars.VERACODE_ISSUE_TO_GITHUB }}
+
+    - name: veracode upload and scan
+      if: ${{ (steps.check-dso-test.outputs.run-veracode-scan-dso-test == 'true') && vars.VERACODE_POLICY_SCAN == 'true' && (steps.prepare-binary.outputs.skip-upload == 'false') }}
+      uses: Sisal-Org/internal-actions/veracode-scanner-uploadandscan@main
+      with:
+        PROJECT_VERSION: ${{ env.artifact-version }}
+        PROJECT_KEY: "${{steps.project-name.outputs.project-name}}:${{ env.artifact-name }}"
+        IDP_VERACODE_ID: ${{ secrets[format('IDP_{0}_VERACODE_ID', env.WORKING_ENV)] }}  
+        IDP_VERACODE_SECRET_KEY: ${{ secrets[format('IDP_{0}_VERACODE_SECRET_KEY', env.WORKING_ENV)] }} 
+        GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
+        BUSINESS_UNIT_GUID: ${{inputs.business_unit_guid}}
+        summary-file-path: 'summary_raw_md'
+        WORKFLOW_ACTION_APP_ID: ${{ secrets.WORKFLOW_ACTION_APP_ID }}
+        WORKFLOW_ACTION_KEY: ${{ secrets.WORKFLOW_ACTION_KEY }}
+        extend-gh-teams: ${{inputs.extend-gh-teams}}
+        VERACODE_ALERT_SLACK_WEBHOOK_URL: ${{ vars.VERACODE_ALERT_SLACK_WEBHOOK_URL }}
+        VERACODE_ALERT_DURATION_THRESHOLD: ${{ vars.VERACODE_ALERT_DURATION_THRESHOLD }}
+        project-name: ${{steps.project-name.outputs.project-name}}
+
+#    - name: Scan vulnerability
+#      if: ${{ inputs.trivy-enabled }}
+#      id: scan
+#      uses: Sisal-Org/internal-actions/trivy-library@main
+#      with:
+#        DEPENDENCY_TRACK_API_KEY: ${{ secrets[format('DEPENDENCY_TRACK_IDP_{0}_API_KEY', env.WORKING_ENV)] }} 
+#        DEPENDENCY_TRACK_URL: ${{ vars[format('DEPENDENCY_TRACK_IDP_{0}_URL', env.WORKING_ENV)] }} 
+#        exit-code: ${{inputs.trivy-exit-code}}
+#        artifact-name: ${{env.artifact-name}}
+#        artifact-version: ${{env.artifact-version}} 
+#        project-namespace: ${{steps.project-name.outputs.project-name}}     
+#        OCI_USERNAME: ${{vars.OCI_OCIR_USER_IDP_PROD}}
+#        OCI_PASSWORD: ${{secrets.OCI_AUTH_TOKEN_IDP_PROD}} 
+    
+#    - name: update package.json
+#      id: update-package-json
+#      uses: Sisal-Org/internal-actions/package-json-update@main
+#      with:
+#        NEXUS_NPM_REPO: ${{inputs.nexus-npm-repo}}
+#        ENVIRONMENT: ${{ inputs.environment }}
+    
+    - name: npm publish
+      uses: Sisal-Org/internal-actions/npm-publish@main
+      with:
+        OCI_REGISTRY: ${{vars.OCI_REGISTRY}}/${{vars.OCI_ACCOUNT}}
+        OCI_TOKEN: ${{secrets.OCI_AUTH_TOKEN_IDP_PROD}}
+        NEXUS_USERNAME: ${{vars.GH_NEXUS_USERNAME_IDP}}
+        NEXUS_PASSWORD: ${{secrets.GH_NEXUS_PASSWORD_IDP}}
+        NEXUS_EMAIL: ${{vars.GH_NEXUS_EMAIL_IDP}}
+        REGISTRY: ${{steps.update-package-json.outputs.REGISTRY}}
+        context_dir: ${{ inputs.project_dir }}
+        
+    - name: Send Slack Notification
+      if: always()
+      uses: Sisal-Org/internal-actions/slack-notification@main
+      with:
+        webhook-url: ${{ inputs.slack-webhook-url }}
+        factory-slack-webhook-url: ${{ inputs.factory-slack-webhook-url }}
+        workflow: ${{ github.workflow }}
+        run-id: ${{ github.run_id }}
+        status: ${{ job.status }}
+        ref: ${{ github.ref }}
+        actor: ${{ github.actor }}
+        repository: ${{ github.repository }}
+        repository-url: ${{ github.server_url }}/${{ github.repository }}
+        project-type: nodejs
+
+    - name: Upload Summary to Bucket
+      if: always()
+      uses: Sisal-Org/internal-actions/upload-summary@main
+      with:
+        summary-file-path: 'summary_raw_md'
+        bucketName: ${{format('idp-{0}', inputs.environment)}}
+        OCI_CLI_USER: ${{ env.OCI_CLI_USER }}
+        OCI_CLI_FINGERPRINT: ${{ env.OCI_CLI_FINGERPRINT }}
+        OCI_CLI_TENANCY: ${{ env.OCI_CLI_TENANCY }}
+        OCI_CLI_REGION: ${{ env.OCI_CLI_REGION }}
+        OCI_CLI_KEY_CONTENT: ${{ env.OCI_CLI_KEY_CONTENT }}
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
