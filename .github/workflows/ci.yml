@@ -34,18 +34,6 @@ on:
         type: string
         description: Slack factory webhook URL for notifications
         default: ''
-      veracode_workspace:
-        type: string
-        description: The workspace name (e.g., digital, betting)
-        default: ''
-      business_unit_guid:
-        description: Business unit GUID to set in the veracode application
-        required: true
-        type: string
-      extend-gh-teams:
-        description: "extend github team with passed value"
-        type: string
-        default: ""
 
 permissions:
   contents: write
@@ -280,7 +268,7 @@ jobs:
           ${{ 
             startsWith(steps.project-name.outputs.project-name, 'dso-') 
             && secrets[format('IDP_{0}_SRCCLR_API_TOKEN_DEVSECOPS', env.WORKING_ENV)] 
-            || secrets[format('IDP_{0}_SRCCLR_API_TOKEN_{1}', env.WORKING_ENV, inputs.veracode_workspace) ] 
+            || secrets[format('IDP_{0}_SRCCLR_API_TOKEN_{1}', env.WORKING_ENV, BETTING) ] 
           }}
         GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
         GITHUB_ISSUE: ${{ vars.VERACODE_ISSUE_TO_GITHUB }}
@@ -311,11 +299,11 @@ jobs:
         IDP_VERACODE_ID: ${{ secrets[format('IDP_{0}_VERACODE_ID', env.WORKING_ENV)] }}  
         IDP_VERACODE_SECRET_KEY: ${{ secrets[format('IDP_{0}_VERACODE_SECRET_KEY', env.WORKING_ENV)] }} 
         GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
-        BUSINESS_UNIT_GUID: ${{inputs.business_unit_guid}}
+        BUSINESS_UNIT_GUID: "edc13e23-d135-4e7b-840d-6f918d69103d"
         summary-file-path: 'summary_raw_md'
         WORKFLOW_ACTION_APP_ID: ${{ secrets.WORKFLOW_ACTION_APP_ID }}
         WORKFLOW_ACTION_KEY: ${{ secrets.WORKFLOW_ACTION_KEY }}
-        extend-gh-teams: ${{inputs.extend-gh-teams}}
+        extend-gh-teams: "Veracode-Executive-Betting"
         VERACODE_ALERT_SLACK_WEBHOOK_URL: ${{ vars.VERACODE_ALERT_SLACK_WEBHOOK_URL }}
         VERACODE_ALERT_DURATION_THRESHOLD: ${{ vars.VERACODE_ALERT_DURATION_THRESHOLD }}
         project-name: ${{steps.project-name.outputs.project-name}}
