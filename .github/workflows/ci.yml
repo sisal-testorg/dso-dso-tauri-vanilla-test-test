@@ -268,7 +268,7 @@ jobs:
           ${{ 
             startsWith(steps.project-name.outputs.project-name, 'dso-') 
             && secrets[format('IDP_{0}_SRCCLR_API_TOKEN_DEVSECOPS', env.WORKING_ENV)] 
-            || secrets[format('IDP_{0}_SRCCLR_API_TOKEN_{1}', env.WORKING_ENV, BETTING) ] 
+            || secrets[format('IDP_{0}_SRCCLR_API_TOKEN_{1}', env.WORKING_ENV, 'BETTING') ] 
           }}
         GITHUB_TOKEN: ${{env.GITHUB_TOKEN}}
         GITHUB_ISSUE: ${{ vars.VERACODE_ISSUE_TO_GITHUB }}
